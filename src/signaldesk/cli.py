@@ -162,5 +162,33 @@ def label_load(path: str):
     typer.echo(f"loaded {len(qs)} questions")
 
 
+@app.command("ask")
+def ask_cmd(
+    question: str,
+    ticker: list[str] = typer.Option(None),
+    as_of: str = typer.Option(None, help="ISO time; only filings published at or before it"),
+    config: str = typer.Option("reports/03_frozen_config.json", help="search config chosen in notebook 03"),
+):
+    """Answer a question from the filings with verified quotes (needs ANTHROPIC_API_KEY)."""
+    import json
+
+    from signaldesk.answer import ask
+    from signaldesk.config import REPO_ROOT
+    from signaldesk.search import SearchConfig
+
+    path = REPO_ROOT / config
+    cfg = SearchConfig(**json.loads(path.read_text())) if path.exists() else SearchConfig()
+    with db.connect() as conn:
+        a = ask(conn, question, cfg=cfg, tickers=ticker, as_of=datetime.fromisoformat(as_of) if as_of else None)
+    colour = {"answered": "green"}.get(a.status, "yellow")
+    typer.secho(f"\n[{a.status}] {a.answer}", fg=colour, bold=True)
+    for c in a.claims:
+        mark = "✓" if c.ok else "✗"
+        typer.echo(f"  {mark} {c.passage_id} ({c.result}): \"{c.quote}\"")
+    typer.echo("\nSources:")
+    for p in a.passages:
+        typer.echo(f"  {p.pid} {p.ticker} {p.form} [{p.section}] {p.published_at:%Y-%m-%d}  {p.source_url}")
+
+
 if __name__ == "__main__":
     app()

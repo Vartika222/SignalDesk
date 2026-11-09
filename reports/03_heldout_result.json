@@ -1,0 +1,20 @@
+{
+  "scored_at": "2026-11-09T16:22:44+00:00",
+  "git_sha": "c028d78",
+  "config": "sec512 \u00b7 bge-small \u00b7 hybrid \u00b7 recency=auto \u00b7 rerank[base]@50",
+  "rescored": false,
+  "n": 45,
+  "ms_per_query": 5746,
+  "recall@5": 0.6222222222222222,
+  "recall@5_lo": 0.4888888888888889,
+  "recall@5_hi": 0.7555555555555555,
+  "recall@5_lenient": 0.6444444444444445,
+  "recall@5_lenient_lo": 0.5111111111111111,
+  "recall@5_lenient_hi": 0.7777777777777778,
+  "mrr": 0.4256701940035273,
+  "mrr_lo": 0.3186148589065256,
+  "mrr_hi": 0.5357466931216931,
+  "ndcg@10": 0.5665894748567765,
+  "ndcg@10_lo": 0.4482904097815919,
+  "ndcg@10_hi": 0.6900297245344789
+}

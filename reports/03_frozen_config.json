@@ -1,0 +1,11 @@
+{
+  "chunker": "sec512",
+  "model": "bge-small",
+  "mode": "hybrid",
+  "candidates": 50,
+  "rerank": true,
+  "rerank_top": 50,
+  "reranker": "base",
+  "recency": "auto",
+  "k": 10
+}

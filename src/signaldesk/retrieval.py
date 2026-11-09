@@ -6,6 +6,7 @@ Every query is filtered *first* by chunker, optional company, and an as-of time,
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -22,7 +23,10 @@ class Hit:
     score: float
 
 
-def _filters(company_ids: list[int] | None, as_of: datetime | None) -> tuple[str, list]:
+def _filters(company_ids: list[int] | None, as_of: datetime | None,
+             latest_only: bool = False) -> tuple[str, list]:
+    """SQL predicates on chunks `c`. latest_only keeps only the newest filing of each form per company
+    as of `as_of` (or now): the latest 10-K, the latest 10-Q and the latest earnings release."""
     sql, params = "", []
     if company_ids:
         sql += " AND c.company_id = ANY(%s)"
@@ -30,7 +34,24 @@ def _filters(company_ids: list[int] | None, as_of: datetime | None) -> tuple[str
     if as_of is not None:
         sql += " AND c.published_at <= %s"
         params.append(as_of)
+    if latest_only:
+        sql += """ AND c.document_id IN (
+            SELECT DISTINCT ON (d.company_id, d.form, d.doc_kind) d.id FROM documents d
+            WHERE d.published_at <= coalesce(%s::timestamptz, now())
+              AND (%s::bigint[] IS NULL OR d.company_id = ANY(%s::bigint[]))
+            ORDER BY d.company_id, d.form, d.doc_kind, d.published_at DESC)"""
+        params += [as_of, company_ids, company_ids]
     return sql, params
+
+
+# Words that mean "the newest filing", not "any filing".
+RE_LATEST = re.compile(
+    r"\b(latest|most recent|recent(ly)?|current(ly)?|this (quarter|year)|last quarter|"
+    r"next quarter|now|today|so far)\b", re.I)
+
+
+def wants_latest(question: str) -> bool:
+    return bool(RE_LATEST.search(question))
 
 
 def vector_search(
@@ -43,10 +64,11 @@ def vector_search(
     company_ids: list[int] | None = None,
     as_of: datetime | None = None,
     exact: bool = False,
+    latest_only: bool = False,
 ) -> list[Hit]:
     m = MODELS[model]
     qvec = embed_query(m, query) if isinstance(query, str) else query
-    fsql, fparams = _filters(company_ids, as_of)
+    fsql, fparams = _filters(company_ids, as_of, latest_only)
     # The cast and the model predicate must match the partial HNSW index in 002_hnsw.sql.
     sql = f"""
         SELECT e.chunk_id, e.vector::vector({m.dim}) <=> %s::vector({m.dim}) AS dist
@@ -74,8 +96,9 @@ def keyword_search(
     k: int = 50,
     company_ids: list[int] | None = None,
     as_of: datetime | None = None,
+    latest_only: bool = False,
 ) -> list[Hit]:
-    fsql, fparams = _filters(company_ids, as_of)
+    fsql, fparams = _filters(company_ids, as_of, latest_only)
     # OR the terms together: websearch_to_tsquery ANDs them, which is too strict for questions.
     sql = f"""
         WITH q AS (

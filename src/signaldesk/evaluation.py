@@ -88,6 +88,10 @@ class Question:
     gold_answer: str | None = None
     extra: dict = field(default_factory=dict)
 
+    @property
+    def answerable(self) -> bool:
+        return bool(self.gold)
+
 
 def load_questions(path: str | Path) -> list[Question]:
     out = []
@@ -96,6 +100,8 @@ def load_questions(path: str | Path) -> list[Question]:
         if not line or line.startswith("//"):
             continue
         d = json.loads(line)
+        if not d.get("gold") and d.get("answerable", True):
+            raise ValueError(f"{path}:{n}: empty gold requires \"answerable\": false")
         try:
             out.append(Question(
                 id=d["id"], split=d["split"], text=d["text"], labelled_by=d["labelled_by"],
@@ -188,21 +194,37 @@ def bootstrap_ci(values, n_boot: int = 2000, alpha: float = 0.05, seed: int = 0)
 Retriever = Callable[[Question], list[int]]  # returns ranked chunk ids
 
 
+def lenient_gold(chunk_text: str, quotes_norm: list[str]) -> set[int]:
+    """Gold indices whose full quote appears in this chunk, from whichever filing it came from. A
+    company repeats sentences across filings; this counts those, the strict metric does not."""
+    t = normalize(chunk_text).lower()
+    return {i for i, q in enumerate(quotes_norm) if q and q in t}
+
+
 def evaluate(conn: psycopg.Connection, questions: list[Question], retriever: Retriever,
              k: int = 10) -> pd.DataFrame:
+    """Score retrieval per question. Can't-answer questions (no gold) are skipped here; Phase 2's
+    answer evaluation uses them to test refusals."""
     rows = []
     for q in questions:
+        if not q.answerable:
+            continue
         spans, errors = resolve_gold(conn, q)
         if errors:
             raise ValueError("unresolvable gold labels:\n" + "\n".join(errors))
         ids = retriever(q)[:k]
         info = {}
         if ids:
-            info = {r[0]: (r[1], r[2], r[3]) for r in conn.execute(
-                "SELECT id, section_id, char_start, char_end FROM chunks WHERE id = ANY(%s)", (ids,))}
-        ranked = [relevant_gold(info[c], spans) if c in info else set() for c in ids]
-        rows.append({"question_id": q.id, "split": q.split, "n_gold": len(q.gold),
-                     "retrieved": ids, **score_ranking(ranked, len(q.gold))})
+            info = {r[0]: (r[1], r[2], r[3], r[4]) for r in conn.execute(
+                "SELECT id, section_id, char_start, char_end, text FROM chunks WHERE id = ANY(%s)", (ids,))}
+        quotes = [normalize(g.quote).lower() for g in q.gold]
+        strict = [relevant_gold(info[c][:3], spans) if c in info else set() for c in ids]
+        lenient = [(strict[i] | lenient_gold(info[c][3], quotes)) if c in info else set()
+                   for i, c in enumerate(ids)]
+        m = score_ranking(strict, len(q.gold))
+        ml = score_ranking(lenient, len(q.gold))
+        rows.append({"question_id": q.id, "split": q.split, "n_gold": len(q.gold), "retrieved": ids,
+                     **m, **{f"{key}_lenient": v for key, v in ml.items()}})
     return pd.DataFrame(rows)
 
 

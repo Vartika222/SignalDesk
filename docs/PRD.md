@@ -227,6 +227,17 @@ What real data changed, in order. Each entry names the evidence.
 | 7 Nov 2026 | v2 broke PFE (bare "Item 1." TOC lines); the new size check caught it | Notebook 01 | v3 extends the TOC through bare headings; regression tests for DAL, PFE and JPM layouts |
 | 7 Nov 2026 | JPM files cross-reference 10-Ks and 10-Qs; MD&A is not under an Item heading | Notebook 01 | Known limitation: text kept (`unlabelled` / `exhibits`), section filters miss it. Title-based parser to be measured in Phase 3 |
 | 7 Nov 2026 | Many 10-Q Risk Factors just say "no material changes" | Notebook 01 (12 of 18) | **Phase 3:** "new risk language" must diff against the latest 10-K |
+| 9 Nov 2026 | An autocommit bug rolled back every interrupted batch job (~33k embeddings lost twice) | Postgres showed `idle in transaction` with savepoints | Connections autocommit; a test checks a batch is visible to another connection before the writer closes |
+| 9 Nov 2026 | First real retrieval score: recall@5 0.42 on 30 dev questions | Notebook 02 | Phase 2 starts with failure analysis instead of guessing |
+| 9 Nov 2026 | Most misses are ranking, not recall: the gold passage usually sits at rank 9–55. Short press releases are outnumbered by long 10-K/10-Q passages with the same vocabulary | Per-question rank analysis | Rerank 50 candidates, not 20; give the reranker the company · form · section · date header |
+| 9 Nov 2026 | "Latest"-aware filtering helps only a little (+0.02 to +0.04) | Notebook 03 stage A | Kept, as `recency=auto` |
+| 9 Nov 2026 | Companies rename segments: Microsoft (Intelligent Cloud → Agents and Infra), Caterpillar (Energy & Transportation → Power & Energy) | Labelling | Kept as hard cases in dev/held-out; Phase 3 needs a name map for segment-level signals |
+| 9 Nov 2026 | Reranking 50 candidates costs 3.2 s (bge-reranker-base, fp16) vs 10 s (bge-reranker-v2-m3) on an M4 | Timing check | v2-m3 can't meet the 10 s answer budget; it is measured on dev but only chosen if it wins clearly |
+| 9 Nov 2026 | Five held-out answers live only in tables whose labels the parser loses | Labelling | Excluded with reasons, not rewritten; table-aware parsing is a Phase 3 item |
+| 9 Nov 2026 | Hybrid beats vector-only and keyword-only on dev (mean recall@5 0.38 vs 0.34 vs 0.22 across settings). Reranking adds about +0.07 on the best setting | Notebook 03 stages A–B | Frozen: sec512 · bge-small · hybrid · recency=auto · rerank[base]@50 |
+| 9 Nov 2026 | **Held-out recall@5 = 0.62 [0.49, 0.76], n=45** (lenient 0.64; MRR 0.43). Below the 0.85 target | Notebook 03, scored once, commit c028d78 | Phase 2 retrieval gate measured and written down; target not met. Misses cluster in table rows, renamed segments and generic risk-factor wording |
+| 9 Nov 2026 | Reranked retrieval takes ~5.8 s per question on an M4, leaving ~4 s for generation inside the 10 s budget | Notebook 03 timings | Answer latency must be measured once the API key is set; reranking 20 instead of 50 is the fallback |
+| 9 Nov 2026 | Cited answers not yet scored: no Anthropic credential on this machine | — | Citation precision, refusal rate and faithfulness remain open for the Phase 2 gate |
 
 ## Open questions
 
