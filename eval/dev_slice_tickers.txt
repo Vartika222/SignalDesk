@@ -1,0 +1,12 @@
+# Phase 1 dev slice: 10 large companies across sectors, most of which give guidance in
+# earnings releases. 1 x 10-K + 2 x 10-Q + 2 x 8-K (Item 2.02) each = ~50 documents.
+AAPL   # technology hardware
+MSFT   # software
+NVDA   # semiconductors
+JPM    # banking
+WMT    # retail
+XOM    # energy
+PFE    # pharma
+CAT    # industrials
+NKE    # consumer discretionary
+DAL    # airlines

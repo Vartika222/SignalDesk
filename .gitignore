@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+data/
+!data/.gitkeep
+reports/*.ipynb
+models/
+bin/
+.DS_Store
+logs/
