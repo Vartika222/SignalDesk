@@ -48,9 +48,8 @@ class SearchConfig:
 
 @lru_cache(maxsize=2)
 def _cross_encoder(name: str):
-    from sentence_transformers import CrossEncoder
-
     import torch
+    from sentence_transformers import CrossEncoder
 
     from signaldesk.embed import device
 
