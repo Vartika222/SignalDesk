@@ -29,6 +29,9 @@ def parse_documents(conn: psycopg.Connection, parser: str = PARSER_VERSION) -> i
         raw = (settings.data_dir / raw_path).read_bytes()
         sections = parse_document(raw, form)
         with conn.transaction(), conn.cursor() as cur:
+            # One parser version per document: older sections (and, by cascade, their chunks and
+            # embeddings) would otherwise stay searchable next to the new ones.
+            cur.execute("DELETE FROM sections WHERE document_id = %s AND parser <> %s", (doc_id, parser))
             cur.executemany(
                 "INSERT INTO sections (document_id, parser, section, title, ordinal, text)"
                 " VALUES (%s, %s, %s, %s, %s, %s)",

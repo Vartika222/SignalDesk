@@ -57,10 +57,9 @@ type columnar struct {
 
 // Submissions is the parsed CIK##########.json feed.
 type Submissions struct {
-	CIK     string
-	Name    string
-	Tickers []string
-	Recent  []Filing
+	CIK    string
+	Name   string
+	Recent []Filing
 	// Older pages of history (file names under data.sec.gov/submissions/).
 	OlderPages []OlderPage
 }
@@ -74,9 +73,8 @@ type OlderPage struct {
 // ParseSubmissions decodes the main submissions JSON.
 func ParseSubmissions(body []byte) (*Submissions, error) {
 	var raw struct {
-		CIK     string   `json:"cik"`
-		Name    string   `json:"name"`
-		Tickers []string `json:"tickers"`
+		CIK     string `json:"cik"`
+		Name    string `json:"name"`
 		Filings struct {
 			Recent columnar    `json:"recent"`
 			Files  []OlderPage `json:"files"`
@@ -91,7 +89,7 @@ func ParseSubmissions(body []byte) (*Submissions, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Submissions{CIK: cik, Name: raw.Name, Tickers: raw.Tickers, Recent: filings, OlderPages: raw.Filings.Files}, nil
+	return &Submissions{CIK: cik, Name: raw.Name, Recent: filings, OlderPages: raw.Filings.Files}, nil
 }
 
 // ParseOlderPage decodes one older-history page (same columnar shape, no wrapper).
@@ -157,7 +155,6 @@ func (f Filing) HasItem(item string) bool {
 type Selection struct {
 	PerForm map[string]int // exact form match; amendments (10-K/A) are excluded unless listed
 	Since   time.Time      // zero = no lower bound
-	Until   time.Time      // zero = no upper bound
 	// For 8-K, only earnings releases (Item 2.02) carry guidance language.
 	Require8KItem string
 }
@@ -172,9 +169,6 @@ func (s Selection) Select(filings []Filing) []Filing {
 			continue
 		}
 		if !s.Since.IsZero() && f.FilingDate.Before(s.Since) {
-			continue
-		}
-		if !s.Until.IsZero() && f.FilingDate.After(s.Until) {
 			continue
 		}
 		if f.Form == "8-K" && s.Require8KItem != "" && !f.HasItem(s.Require8KItem) {

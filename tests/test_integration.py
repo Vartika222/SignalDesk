@@ -210,6 +210,8 @@ def test_ask_keeps_verified_claims_and_drops_fabricated_ones(conn):
     assert [c.ok for c in a.claims] == [True, False]
     assert len(a.dropped) == 1 and a.dropped[0].result == "fail_not_found"
     assert a.passages[0].ticker == "ACME"
+    # The model's own summary restates the dropped claim, so only verified claim text is shown.
+    assert a.answer == "Outlook lowered"
 
 
 def test_ask_refuses_when_no_quote_verifies(conn):
@@ -256,3 +258,50 @@ def test_latest_only_filter_keeps_newest_filing_per_form(conn):
     assert forms <= {"10-K", "8-K"}  # one filing of each form in the fixture, both are the latest
     assert r.wants_latest("What was revenue in the latest quarter?")
     assert not r.wants_latest("What does Acme say about suppliers?")
+
+
+def test_unknown_ticker_matches_nothing(conn):
+    from signaldesk.search import search
+    assert search(conn, "revenue outlook", CFG, tickers=["NOPE"]) == []
+    a = ask(conn, "What is the revenue outlook?", cfg=CFG, tickers=["NOPE"],
+            transport=fake({"answerable": True, "answer": "x", "claims": []}))
+    assert a.status == "no_passages"
+
+
+def test_model_refusal_is_an_answer_and_counts_toward_budget(conn):
+    from signaldesk.llm import Refused
+
+    calls = []
+
+    def refusing(request):
+        calls.append(request)
+        raise Refused("model declined (category=test)")
+
+    def failed_rows():
+        return conn.execute("SELECT count(*) FROM llm_calls WHERE key LIKE '%:failed:%'").fetchone()[0]
+
+    before = failed_rows()
+    for _ in range(2):
+        a = ask(conn, "Something the model declines about Acme?", cfg=CFG, transport=refusing)
+        assert a.status == "refused_by_model" and a.passages
+    assert len(calls) == 2, "refusals are not cached"
+    assert failed_rows() == before + 2, "failed calls count toward the daily budget"
+
+
+def test_reparse_removes_older_parser_versions(conn):
+    cid = conn.execute("SELECT id FROM companies WHERE ticker = 'ACME'").fetchone()[0]
+    raw_path = conn.execute("SELECT raw_path FROM documents WHERE form = '8-K'").fetchone()[0]
+    doc = conn.execute(
+        """INSERT INTO documents (company_id, accession_no, form, doc_kind, file_name, source_url, filed_date,
+               accepted_at, published_at, content_hash, raw_path, raw_bytes)
+           VALUES (%s, '0000000001-23-000009', '8-K', 'ex99_1', 'x', 'https://example.test/x', '2023-01-05',
+               '2023-01-05', '2023-01-05', 'reparse-test', %s, 1) RETURNING id""",
+        (cid, raw_path)).fetchone()[0]
+    try:
+        conn.execute("INSERT INTO sections (document_id, parser, section, ordinal, text)"
+                     " VALUES (%s, 'html-v0', 'press_release', 0, 'old parse')", (doc,))
+        pipeline.parse_documents(conn)
+        parsers = {r[0] for r in conn.execute("SELECT parser FROM sections WHERE document_id = %s", (doc,))}
+        assert parsers == {pipeline.PARSER_VERSION}
+    finally:
+        conn.execute("DELETE FROM documents WHERE id = %s", (doc,))

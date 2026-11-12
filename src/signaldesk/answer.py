@@ -17,7 +17,7 @@ from datetime import datetime
 
 import psycopg
 
-from signaldesk.llm import LLMResult, Transport, call_json
+from signaldesk.llm import LLMResult, Refused, Transport, call_json
 from signaldesk.search import SearchConfig, search
 from signaldesk.verify import ClaimCheck, verify_claims
 
@@ -75,7 +75,7 @@ class Passage:
 class Answer:
     question: str
     status: str  # answered | refused_by_model | refused_unverified | no_passages
-    answer: str
+    answer: str  # when some claims were dropped: only the verified claims' text
     claims: list[ClaimCheck]
     passages: list[Passage]
     dropped: list[ClaimCheck] = field(default_factory=list)
@@ -137,7 +137,11 @@ def ask(
 
     when = f" (as of {as_of:%Y-%m-%d})" if as_of else ""
     user = f"Question{when}: {question}\n\n{render_passages(passages)}"
-    res = call_json(conn, purpose="answer", system=SYSTEM, user=user, schema=SCHEMA, transport=transport)
+    try:
+        res = call_json(conn, purpose="answer", system=SYSTEM, user=user, schema=SCHEMA, transport=transport)
+    except Refused as e:
+        return Answer(question, "refused_by_model", f"The model declined to answer ({e}).", [], passages,
+                      latency_ms=int((time.perf_counter() - t0) * 1000))
     data = res.data
     checks = verify_claims(data.get("claims", []), {p.pid: p.text for p in passages})
     kept = [c for c in checks if c.ok]
@@ -165,13 +169,15 @@ def ask(
             latency_ms=latency,
             llm=res,
         )
+    dropped = [c for c in checks if not c.ok]
     return Answer(
         question,
         "answered",
-        data.get("answer", ""),
+        # The free-text answer may restate a dropped claim, so only show it when every quote verified.
+        " ".join(c.text for c in kept) if dropped else data.get("answer", ""),
         checks,
         passages,
-        dropped=[c for c in checks if not c.ok],
+        dropped=dropped,
         latency_ms=latency,
         llm=res,
     )

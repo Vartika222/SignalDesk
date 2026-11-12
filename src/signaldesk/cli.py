@@ -85,41 +85,48 @@ def _show(conn, ids: list[int], width: int = 100, max_chars: int = 600):
         typer.echo(textwrap.fill(body, width=width, replace_whitespace=False))
 
 
+FROZEN = "reports/03_frozen_config.json"
+
+
+def _config(path: str = FROZEN):
+    """The search config chosen in notebook 03 (defaults if the notebook hasn't run)."""
+    from signaldesk.config import REPO_ROOT
+    from signaldesk.search import SearchConfig
+
+    p = REPO_ROOT / path
+    return SearchConfig(**json.loads(p.read_text())) if p.exists() else SearchConfig()
+
+
+def _search_and_show(query: str, tickers: list[str] | None, as_of: str | None, cfg) -> None:
+    from signaldesk.search import search as run_search
+
+    with db.connect() as conn:
+        hits = run_search(conn, query, cfg, tickers=tickers,
+                          as_of=datetime.fromisoformat(as_of) if as_of else None)
+        if not hits:
+            typer.echo("No passages matched (check the ticker and as-of date).")
+        _show(conn, [h.chunk_id for h in hits])
+
+
 @app.command()
 def search(
     query: str,
     ticker: list[str] = typer.Option(None),
     as_of: str = typer.Option(None, help="ISO time; only documents published at or before it"),
-    mode: str = typer.Option("hybrid", help="vector | keyword | hybrid"),
-    model: str = "bge-base",
-    chunker: str = "sec512",
+    mode: str = typer.Option(None, help="vector | keyword | hybrid (default: frozen config)"),
     k: int = 5,
-    exact: bool = typer.Option(False, help="exact vector search (no HNSW)"),
 ):
-    """Search the index and print passages."""
-    from signaldesk import retrieval as r
-
-    with db.connect() as conn:
-        cids = r.company_ids_for(conn, ticker) if ticker else None
-        when = datetime.fromisoformat(as_of) if as_of else None
-        kw = dict(chunker=chunker, company_ids=cids, as_of=when)
-        if mode == "vector":
-            hits = r.vector_search(conn, query, model=model, k=k, exact=exact, **kw)
-        elif mode == "keyword":
-            hits = r.keyword_search(conn, query, k=k, **kw)
-        else:
-            hits = r.rrf(r.vector_search(conn, query, model=model, k=50, **kw),
-                         r.keyword_search(conn, query, k=50, **kw), limit=k)
-        _show(conn, [h.chunk_id for h in hits])
+    """Search the index with the same pipeline `ask` uses, and print passages."""
+    cfg = _config().but(k=k, **({"mode": mode} if mode else {}))
+    _search_and_show(query, ticker, as_of, cfg)
 
 
 @label_app.command("find")
 def label_find(query: str, ticker: list[str] = typer.Option(None), k: int = 8):
-    """Find candidate passages for a question you are labelling (hybrid search, wide net).
+    """Find candidate passages for a question you are labelling (the pipeline `ask` uses).
 
     Copy the exact sentence(s) that answer the question into the "quote" field of your JSONL."""
-    search(query, ticker=ticker, as_of=None, mode="hybrid", model="bge-base",
-           chunker="sec512", k=k, exact=False)
+    _search_and_show(query, ticker, None, _config().but(k=k))
 
 
 @label_app.command("check")
@@ -167,17 +174,12 @@ def ask_cmd(
     question: str,
     ticker: list[str] = typer.Option(None),
     as_of: str = typer.Option(None, help="ISO time; only filings published at or before it"),
-    config: str = typer.Option("reports/03_frozen_config.json", help="search config chosen in notebook 03"),
+    config: str = typer.Option(FROZEN, help="search config chosen in notebook 03"),
 ):
     """Answer a question from the filings with verified quotes (needs ANTHROPIC_API_KEY)."""
-    import json
-
     from signaldesk.answer import ask
-    from signaldesk.config import REPO_ROOT
-    from signaldesk.search import SearchConfig
 
-    path = REPO_ROOT / config
-    cfg = SearchConfig(**json.loads(path.read_text())) if path.exists() else SearchConfig()
+    cfg = _config(config)
     with db.connect() as conn:
         a = ask(conn, question, cfg=cfg, tickers=ticker, as_of=datetime.fromisoformat(as_of) if as_of else None)
     colour = {"answered": "green"}.get(a.status, "yellow")

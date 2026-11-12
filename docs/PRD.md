@@ -238,6 +238,7 @@ What real data changed, in order. Each entry names the evidence.
 | 9 Nov 2026 | **Held-out recall@5 = 0.62 [0.49, 0.76], n=45** (lenient 0.64; MRR 0.43). Below the 0.85 target | Notebook 03, scored once, commit c028d78 | Phase 2 retrieval gate measured and written down; target not met. Misses cluster in table rows, renamed segments and generic risk-factor wording |
 | 9 Nov 2026 | Reranked retrieval takes ~5.8 s per question on an M4, leaving ~4 s for generation inside the 10 s budget | Notebook 03 timings | Answer latency must be measured once the API key is set; reranking 20 instead of 50 is the fallback |
 | 9 Nov 2026 | Cited answers not yet scored: no Anthropic credential on this machine | — | Citation precision, refusal rate and faithfulness remain open for the Phase 2 gate |
+| 13 Nov 2026 | Repo audit: an unknown ticker searched every company; the answer text could restate a dropped claim; a model refusal crashed batch runs; a parser bump would leave old passages searchable; dev/held-out questions had no `as_of`, so a new download would change "latest" results | Code audit | All fixed with a test each. Every question without `as_of` is pinned to its labelling date (2026-11-09; newest filing in the DB is 2026-11-04, so held-out results are unchanged by construction and were not re-scored) |
 
 ## Open questions
 

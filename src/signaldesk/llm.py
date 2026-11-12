@@ -99,14 +99,26 @@ def call_json(
         )
 
     t0 = time.perf_counter()
-    text, stop, tin, tout = (transport or claude_transport)(request)
+    stop, tin, tout = "error", None, None
+    try:
+        text, stop, tin, tout = (transport or claude_transport)(request)
+        if stop == "max_tokens":
+            raise RuntimeError("response truncated at max_tokens")
+        data = json.loads(text)
+    except Exception as e:
+        # Failed calls still cost money, so they count toward the budget. The unique suffix keeps them
+        # out of the cache: a retry calls the model again instead of replaying the failure.
+        _record(conn, f"{key}:failed:{time.time_ns()}", purpose, request, {"error": repr(e)}, stop, tin, tout,
+                int((time.perf_counter() - t0) * 1000))
+        raise
     latency = int((time.perf_counter() - t0) * 1000)
-    if stop == "max_tokens":
-        raise RuntimeError("response truncated at max_tokens")
-    data = json.loads(text)
+    _record(conn, key, purpose, request, data, stop, tin, tout, latency)
+    return LLMResult(data, False, tin, tout, latency)
+
+
+def _record(conn, key, purpose, request, response, stop, tin, tout, latency) -> None:
     conn.execute(
         """INSERT INTO llm_calls (key, model, purpose, request, response, stop_reason, input_tokens,
                output_tokens, latency_ms) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (key) DO NOTHING""",
-        (key, MODEL, purpose, json.dumps(request), json.dumps(data), stop, tin, tout, latency),
+        (key, MODEL, purpose, json.dumps(request), json.dumps(response), stop, tin, tout, latency),
     )
-    return LLMResult(data, False, tin, tout, latency)

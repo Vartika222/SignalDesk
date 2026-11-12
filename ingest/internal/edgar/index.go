@@ -16,10 +16,8 @@ type IndexPage struct {
 }
 
 type IndexDoc struct {
-	Seq         string
-	Description string
-	Name        string // file name inside the filing folder
-	Type        string // e.g. 10-K, EX-99.1
+	Name string // file name inside the filing folder
+	Type string // e.g. 10-K, EX-99.1
 }
 
 var (
@@ -68,10 +66,8 @@ func ParseIndex(body []byte) (*IndexPage, error) {
 			continue
 		}
 		page.Documents = append(page.Documents, IndexDoc{
-			Seq:         clean(cells[0][1]),
-			Description: clean(cells[1][1]),
-			Name:        fileName(href[1]),
-			Type:        clean(cells[3][1]),
+			Name: fileName(href[1]),
+			Type: clean(cells[3][1]),
 		})
 	}
 	return page, nil

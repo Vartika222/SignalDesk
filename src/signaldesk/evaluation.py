@@ -227,10 +227,3 @@ def evaluate(conn: psycopg.Connection, questions: list[Question], retriever: Ret
                      **m, **{f"{key}_lenient": v for key, v in ml.items()}})
     return pd.DataFrame(rows)
 
-
-def summarize(df: pd.DataFrame, metrics=("recall@5", "mrr", "ndcg@10")) -> dict[str, str]:
-    out = {"n": str(len(df))}
-    for m in metrics:
-        mean, lo, hi = bootstrap_ci(df[m].tolist())
-        out[m] = f"{mean:.3f} [{lo:.3f}, {hi:.3f}]"
-    return out

@@ -122,11 +122,19 @@ b[["config", "n", "recall@5", "recall@5_lo", "recall@5_hi", "recall@5_lenient", 
 # ## Freeze
 #
 # The winner is the best dev recall@5 (ties broken by MRR). Overlapping intervals mean the choice is a
-# reasonable default, not proof that it beats the runner-up.
+# reasonable default, not proof that it beats the runner-up. Once held-out has been scored, the frozen
+# config is kept as it is (the recorded held-out number belongs to it) unless held-out is re-scored.
 
 # %%
-frozen: SearchConfig = b.iloc[0]["_cfg"]
-(REPORTS / "03_frozen_config.json").write_text(json.dumps(frozen.to_dict(), indent=2))
+lock = REPORTS / "03_heldout_result.json"
+rescore = os.environ.get("SIGNALDESK_RESCORE_HELDOUT") == "1"
+frozen_path = REPORTS / "03_frozen_config.json"
+if lock.exists() and frozen_path.exists() and not rescore:
+    frozen = SearchConfig(**json.loads(frozen_path.read_text()))
+    print("held-out already scored: keeping", frozen.label(), "| this run's dev winner:", b.iloc[0]["_cfg"].label())
+else:
+    frozen = b.iloc[0]["_cfg"]
+    frozen_path.write_text(json.dumps(frozen.to_dict(), indent=2))
 print("frozen:", frozen.label())
 
 fig, ax = plt.subplots(figsize=(8, 0.4 * len(b) + 1))
@@ -143,8 +151,6 @@ fig.savefig(REPORTS / "03_dev_stage_b.png", dpi=150)
 # ## Held-out: scored once
 
 # %%
-lock = REPORTS / "03_heldout_result.json"
-rescore = os.environ.get("SIGNALDESK_RESCORE_HELDOUT") == "1"
 if lock.exists() and not rescore:
     held = json.loads(lock.read_text())
     print("Held-out was already scored on", held["scored_at"], "with", held["config"])

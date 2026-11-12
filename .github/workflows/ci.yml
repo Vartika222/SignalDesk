@@ -29,6 +29,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --python 3.12
-      - run: uv run ruff check src tests
+      - run: uv run ruff check src tests notebooks scripts
       - run: uv run signaldesk db migrate
       - run: uv run pytest -q

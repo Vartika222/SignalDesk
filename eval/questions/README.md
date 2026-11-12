@@ -17,7 +17,7 @@ Illustrative shape only (the accession number and quote are placeholders):
 |---|---|
 | `split` | `dev` (tune on it freely) or `heldout` (scored once, in notebook 03). `smoke` is reserved for assistant-written pipeline checks and is never reported |
 | `quote` | Copied exactly from the filing; whitespace, curly quotes and dashes are forgiven. One sentence is usually enough |
-| `as_of` | Optional. Retrieval only sees documents published at or before it |
+| `as_of` | Retrieval only sees documents published at or before it. Set it to the labelling date at least: "latest" questions are filtered to the newest filing as of this time, so without it a later download would hide the gold filing |
 | `labelled_by` | Your name. Required |
 
 ## Workflow

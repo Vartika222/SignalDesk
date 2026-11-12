@@ -34,6 +34,7 @@ from signaldesk.config import REPO_ROOT
 from signaldesk.db import connect
 from signaldesk.embed import MODELS
 from signaldesk.evaluation import bootstrap_ci, evaluate, load_questions
+from signaldesk.search import SearchConfig, search
 
 REPORTS = REPO_ROOT / "reports"
 REPORTS.mkdir(exist_ok=True)
@@ -52,18 +53,10 @@ print(f"{len(questions)} questions")
 
 # %%
 def make_retriever(conn, mode, chunker, model):
-    def run(q):
-        cids = r.company_ids_for(conn, [q.ticker]) if q.ticker else None
-        kw = dict(chunker=chunker, company_ids=cids, as_of=q.as_of)
-        if mode == "vector":
-            hits = r.vector_search(conn, q.text, model=model, k=10, **kw)
-        elif mode == "keyword":
-            hits = r.keyword_search(conn, q.text, k=10, **kw)
-        else:
-            hits = r.rrf(r.vector_search(conn, q.text, model=model, k=50, **kw),
-                         r.keyword_search(conn, q.text, k=50, **kw), limit=10)
-        return [h.chunk_id for h in hits]
-    return run
+    # The shared pipeline with no reranker and no recency filter: the Phase 1 baseline.
+    cfg = SearchConfig(chunker=chunker, model=model, mode=mode, k=10)
+    return lambda q: [h.chunk_id for h in search(
+        conn, q.text, cfg, tickers=[q.ticker] if q.ticker else None, as_of=q.as_of)]
 
 
 results, per_question = [], []
@@ -160,5 +153,4 @@ with connect() as conn:
          json.dumps({"chunkers": list(CHUNKERS), "models": list(MODELS)}), sha,
          grid.to_json(orient="records")),
     )
-    conn.commit()
 print("best:", best[["chunker", "model", "mode", "recall@5"]].to_dict())

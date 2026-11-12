@@ -28,7 +28,7 @@ def _filters(company_ids: list[int] | None, as_of: datetime | None,
     """SQL predicates on chunks `c`. latest_only keeps only the newest filing of each form per company
     as of `as_of` (or now): the latest 10-K, the latest 10-Q and the latest earnings release."""
     sql, params = "", []
-    if company_ids:
+    if company_ids is not None:  # [] (unknown ticker) must match nothing, not everything
         sql += " AND c.company_id = ANY(%s)"
         params.append(company_ids)
     if as_of is not None:
