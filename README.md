@@ -15,7 +15,7 @@ Research only. Not investment advice.
 |---|---|---|---|
 | Held-out retrieval recall@5 (scored once) | **0.62** [0.49, 0.76] | 45 | notebook 03 |
 | Held-out MRR / nDCG@10 | 0.43 / 0.57 | 45 | notebook 03 |
-| Dev recall@5, first baseline → frozen config | 0.42 → 0.54 | 30 → 50 | notebooks 02, 03 |
+| Dev recall@5, Phase 1 baseline → frozen config | 0.43 → 0.54 | 50 | notebooks 02, 03 |
 | Target | 0.85 | | PRD |
 | Citation precision, refusal rate, faithfulness | not yet measured (needs an API key) | | notebook 03 |
 
