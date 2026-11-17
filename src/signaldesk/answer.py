@@ -147,7 +147,8 @@ def ask(
     kept = [c for c in checks if c.ok]
     latency = int((time.perf_counter() - t0) * 1000)
 
-    if not data.get("answerable") and not kept:
+    # The model's own "not answerable" wins even if it quoted context: that text is not an answer.
+    if not data.get("answerable"):
         return Answer(
             question,
             "refused_by_model",

@@ -1,4 +1,5 @@
-"""Claude calls with a database cache and hard budgets.
+"""Model calls (Claude, or a local Ollama model with SIGNALDESK_LLM=ollama) with a database cache and
+hard budgets. The model name is part of the cache key, so results from different models never mix.
 
 - Cached: the key is a hash of the full request, so a rerun of the same question with the same passages
   never pays twice, and evaluation numbers reproduce.
@@ -19,7 +20,11 @@ from dataclasses import dataclass
 
 import psycopg
 
-MODEL = os.environ.get("SIGNALDESK_MODEL", "claude-opus-5-5")
+import signaldesk.config  # noqa: F401  (loads .env before the settings below are read)
+
+BACKEND = os.environ.get("SIGNALDESK_LLM", "claude")  # claude | ollama (local, free)
+MODEL = os.environ.get("SIGNALDESK_MODEL", "qwen2.5:7b" if BACKEND == "ollama" else "claude-opus-5-5")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MAX_CALLS_PER_DAY = int(os.environ.get("SIGNALDESK_MAX_CALLS_PER_DAY", "300"))
 
 
@@ -60,6 +65,33 @@ def claude_transport(request: dict) -> tuple[str, str, int | None, int | None]:
     return text, resp.stop_reason, resp.usage.input_tokens, resp.usage.output_tokens
 
 
+def ollama_transport(request: dict) -> tuple[str, str, int | None, int | None]:
+    """The same request, served by a local Ollama model. The JSON schema becomes Ollama's `format`."""
+    import urllib.error
+    import urllib.request
+
+    body = {
+        "model": request["model"],
+        "messages": [{"role": "system", "content": request["system"]}, *request["messages"]],
+        "format": request["output_config"]["format"]["schema"],
+        "stream": False,
+        # Five passages are ~3k tokens; Ollama's default context would silently cut them off.
+        "options": {"temperature": 0, "num_ctx": 8192, "num_predict": request["max_tokens"]},
+    }
+    req = urllib.request.Request(f"{OLLAMA_URL}/api/chat", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            out = json.loads(resp.read())
+    except urllib.error.HTTPError:
+        raise  # e.g. 404 when the model isn't pulled: Ollama's own message is clearer
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Ollama not reachable at {OLLAMA_URL} ({e.reason}): start it with "
+                           f"'ollama serve' and get the model with 'ollama pull {request['model']}'") from e
+    stop = "max_tokens" if out.get("done_reason") == "length" else "end_turn"
+    return out["message"]["content"], stop, out.get("prompt_eval_count"), out.get("eval_count")
+
+
 def request_key(request: dict) -> str:
     return hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
 
@@ -90,9 +122,9 @@ def call_json(
         return LLMResult(row[0], True, row[1], row[2], row[3])
 
     used = conn.execute(
-        "SELECT count(*) FROM llm_calls WHERE created_at > now() - interval '1 day'"
+        "SELECT count(*) FROM llm_calls WHERE model = %s AND created_at > now() - interval '1 day'", (MODEL,)
     ).fetchone()[0]
-    if used >= MAX_CALLS_PER_DAY:
+    if BACKEND != "ollama" and used >= MAX_CALLS_PER_DAY:  # the cap guards spend; local calls are free
         raise BudgetExceeded(
             f"{used} model calls in the last 24h (cap {MAX_CALLS_PER_DAY}); "
             "raise SIGNALDESK_MAX_CALLS_PER_DAY to continue"
@@ -101,7 +133,8 @@ def call_json(
     t0 = time.perf_counter()
     stop, tin, tout = "error", None, None
     try:
-        text, stop, tin, tout = (transport or claude_transport)(request)
+        default = ollama_transport if BACKEND == "ollama" else claude_transport
+        text, stop, tin, tout = (transport or default)(request)
         if stop == "max_tokens":
             raise RuntimeError("response truncated at max_tokens")
         data = json.loads(text)

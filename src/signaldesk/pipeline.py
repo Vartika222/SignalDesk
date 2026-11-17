@@ -90,8 +90,8 @@ def embed_chunks(conn: psycopg.Connection, model: str, chunker: str, batch: int 
         vecs = embed_passages(m, [passage_input(n, f, t, x) for _, n, f, t, x in part], batch)
         with conn.transaction(), conn.cursor() as cur:
             cur.executemany(
-                "INSERT INTO embeddings (chunk_id, model, dim, vector) VALUES (%s, %s, %s, %s)",
-                [(r[0], m.key, m.dim, v) for r, v in zip(part, vecs, strict=True)],
+                "INSERT INTO embeddings (chunk_id, model, vector) VALUES (%s, %s, %s)",
+                [(r[0], m.key, v) for r, v in zip(part, vecs, strict=True)],
             )
         done += len(part)
         log.info("embedded %d/%d chunks (%s, %s)", done, len(rows), chunker, model)

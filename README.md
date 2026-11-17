@@ -17,7 +17,10 @@ Research only. Not investment advice.
 | Held-out MRR / nDCG@10 | 0.43 / 0.57 | 45 | notebook 03 |
 | Dev recall@5, Phase 1 baseline → frozen config | 0.43 → 0.54 | 50 | notebooks 02, 03 |
 | Target | 0.85 | | PRD |
-| Citation precision, refusal rate, faithfulness | not yet measured (needs an API key) | | notebook 03 |
+| Held-out citation precision (quotes found in the cited passage), qwen2.5:7b local | **0.87** (46/53 quotes) | 55 | notebook 03 |
+| Answered (answerable) / refused (can't-answer) | 0.84 (38/45) / **1.00** (10/10) | 45 / 10 | notebook 03 |
+| Median answer latency, M4 in Low Power Mode | 76 s (target 10 s) | 55 | notebook 03 |
+| Faithfulness and correctness | needs human grading of `reports/03_answers_for_grading.csv` | | |
 
 The frozen pipeline: 512-token section-aware chunks, bge-small embeddings, hybrid search fused with RRF,
 "latest filing" filtering when the question asks for it, then bge-reranker-base over 50 candidates.
@@ -46,9 +49,9 @@ src/signaldesk/
   embed.py       bge-small / bge-base, local on Apple Silicon (MPS)
   retrieval.py   vector (HNSW), keyword (full text), RRF; as-of and latest-filing filters
   search.py      the full pipeline: filter → hybrid → RRF → cross-encoder rerank
-  answer.py      Claude answers from retrieved passages only, as JSON claims with quotes
+  answer.py      answers from retrieved passages only, as JSON claims with quotes
   verify.py      hand-written quote verifier; unverified claims are dropped, not shown
-  llm.py         cached, budgeted Claude calls with server-side refusal fallback
+  llm.py         cached model calls: local Ollama (qwen2.5:7b) or Claude (budgeted, refusal fallback)
   evaluation.py  quote-span gold, recall@k / MRR / nDCG, bootstrap CIs
   pipeline.py    idempotent parse → chunk → embed batches
   cli.py         `signaldesk …`
@@ -64,7 +67,7 @@ docs/PRD.md    requirements, phases and gates
 Prerequisites: Docker, Go 1.25, [uv](https://docs.astral.sh/uv/).
 
 ```bash
-cp .env.example .env        # set SEC_USER_AGENT; ANTHROPIC_API_KEY for `ask` and answer scoring
+cp .env.example .env        # set SEC_USER_AGENT; SIGNALDESK_LLM=ollama (free, local) or ANTHROPIC_API_KEY for `ask`
 make up                     # Postgres + pgvector, migrations
 make test                   # Go + Python tests (first run downloads bge tokenizer/models)
 make ingest-dry             # what the dev slice would fetch

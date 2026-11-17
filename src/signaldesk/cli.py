@@ -149,26 +149,6 @@ def label_check(path: str):
     raise typer.Exit(1 if bad else 0)
 
 
-@label_app.command("load")
-def label_load(path: str):
-    """Upsert a validated questions file into the questions table."""
-    from signaldesk.evaluation import load_questions
-
-    qs = load_questions(path)
-    with db.connect() as conn, conn.transaction():
-        for q in qs:
-            conn.execute(
-                """INSERT INTO questions (id, split, text, ticker, as_of, gold, gold_answer, labelled_by)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                   ON CONFLICT (id) DO UPDATE SET split=EXCLUDED.split, text=EXCLUDED.text,
-                     ticker=EXCLUDED.ticker, as_of=EXCLUDED.as_of, gold=EXCLUDED.gold,
-                     gold_answer=EXCLUDED.gold_answer, labelled_by=EXCLUDED.labelled_by""",
-                (q.id, q.split, q.text, q.ticker, q.as_of,
-                 json.dumps([g.__dict__ for g in q.gold]), q.gold_answer, q.labelled_by),
-            )
-    typer.echo(f"loaded {len(qs)} questions")
-
-
 @app.command("ask")
 def ask_cmd(
     question: str,
@@ -176,7 +156,7 @@ def ask_cmd(
     as_of: str = typer.Option(None, help="ISO time; only filings published at or before it"),
     config: str = typer.Option(FROZEN, help="search config chosen in notebook 03"),
 ):
-    """Answer a question from the filings with verified quotes (needs ANTHROPIC_API_KEY)."""
+    """Answer a question from the filings with verified quotes (SIGNALDESK_LLM=ollama or ANTHROPIC_API_KEY)."""
     from signaldesk.answer import ask
 
     cfg = _config(config)

@@ -173,8 +173,8 @@ pd.Series(held)
 # %% [markdown]
 # ## Cited answers on held-out
 #
-# Runs only when an Anthropic credential is configured. Each model call is cached in Postgres, so a rerun
-# costs nothing. Automatic metrics:
+# Runs when a model is configured: a local Ollama model (SIGNALDESK_LLM=ollama) or an Anthropic credential.
+# Each model call is cached in Postgres under its model name, so a rerun costs nothing. Automatic metrics:
 #
 # - **Citation precision**: share of the model's quotes that the verifier finds in the cited passage.
 # - **Answered rate** on answerable questions, and **refusal rate** on can't-answer questions.
@@ -183,25 +183,35 @@ pd.Series(held)
 # Faithfulness and correctness need a human: the cell exports a grading sheet.
 
 # %%
-have_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-if not have_key:
-    print("No ANTHROPIC_API_KEY set: skipping answer generation. Add it to .env and rerun this cell.")
+from signaldesk import llm
+
+have_llm = llm.BACKEND == "ollama" or bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+if not have_llm:
+    print("No model configured: skipping answer generation. Set SIGNALDESK_LLM=ollama (local) or ANTHROPIC_API_KEY.")
 else:
     from signaldesk.answer import ask
+
+    print("answer model:", llm.BACKEND, llm.MODEL)
 
     rows = []
     with connect() as conn:
         for q in heldout:
             a_ = ask(conn, q.text, cfg=frozen, tickers=[q.ticker] if q.ticker else None, as_of=q.as_of)
             rows.append({
-                "id": q.id, "answerable": q.answerable, "status": a_.status, "answer": a_.answer,
+                "id": q.id, "model": llm.MODEL, "answerable": q.answerable, "status": a_.status, "answer": a_.answer,
                 "n_claims": len(a_.claims), "n_verified": len(a_.kept),
                 "quotes": " || ".join(c.quote for c in a_.claims),
                 "gold_answer": q.gold_answer or "", "latency_s": a_.latency_ms / 1000,
                 "cached": bool(a_.llm and a_.llm.cached),
             })
     ans = pd.DataFrame(rows)
-    ans.to_csv(REPORTS / "03_answers_for_grading.csv", index=False)
+    ans.to_csv(REPORTS / "03_answers_latest.csv", index=False)
+    # The grading sheet holds hand-written grades, so a rerun never overwrites it.
+    grading = REPORTS / "03_answers_for_grading.csv"
+    if grading.exists():
+        print(f"kept {grading.name} (may hold grades); this run is in 03_answers_latest.csv")
+    else:
+        ans.to_csv(grading, index=False)
     claims = ans["n_claims"].sum()
     cp = ans["n_verified"].sum() / claims if claims else float("nan")
     answered = (ans[ans.answerable].status == "answered").mean()

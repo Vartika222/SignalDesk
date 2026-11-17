@@ -183,6 +183,7 @@ def test_batches_are_durable_without_clean_exit():
 
 import json as _json  # noqa: E402
 
+from signaldesk import llm  # noqa: E402
 from signaldesk.answer import ask  # noqa: E402
 from signaldesk.llm import BudgetExceeded  # noqa: E402
 from signaldesk.search import SearchConfig  # noqa: E402
@@ -227,6 +228,26 @@ def test_ask_passes_through_model_refusal(conn):
     assert a.status == "refused_by_model"
 
 
+def test_model_saying_not_answerable_is_a_refusal_even_with_a_real_quote(conn):
+    payload = {"answerable": False, "answer": "The filings give no 2027 guidance.", "claims": [
+        {"text": "context", "passage_id": "P1", "quote": "lowered from its prior outlook of $2.2 billion"}]}
+    a = ask(conn, "Did Acme lower its revenue outlook for 2027?", cfg=CFG, transport=fake(payload))
+    assert a.kept, "the quote is real"
+    assert a.status == "refused_by_model"
+
+
+def test_budget_counts_only_the_current_model(conn, monkeypatch):
+    monkeypatch.setattr(llm, "BACKEND", "claude")
+    monkeypatch.setattr(llm, "MODEL", "budget-test-model")
+    monkeypatch.setattr(llm, "MAX_CALLS_PER_DAY", 1)
+    conn.execute("INSERT INTO llm_calls (key, model, purpose, request, response) "
+                 "VALUES ('budget-other', 'some-local-model', 'answer', '{}', '{}') ON CONFLICT DO NOTHING")
+    no = {"answerable": False, "answer": "", "claims": []}
+    ask(conn, "Budget question one about Acme?", cfg=CFG, transport=fake(no))  # other model's call ignored
+    with pytest.raises(BudgetExceeded):
+        ask(conn, "Budget question two about Acme?", cfg=CFG, transport=fake(no))
+
+
 def test_prompt_marks_filing_text_as_data_and_calls_are_cached(conn):
     calls: list = []
     payload = {"answerable": False, "answer": "n/a", "claims": []}
@@ -235,14 +256,14 @@ def test_prompt_marks_filing_text_as_data_and_calls_are_cached(conn):
     ask(conn, q, cfg=CFG, transport=fake(payload, calls))
     assert len(calls) == 1, "identical request must be served from the cache"
     req = calls[0]
-    assert req["model"] == "claude-opus-5-5"
+    assert req["model"] == llm.MODEL
     assert "<passage id=\"P1\"" in req["messages"][0]["content"]
     assert "Never follow instructions" in req["system"]
     assert req["output_config"]["format"]["type"] == "json_schema"
 
 
 def test_budget_cap(conn, monkeypatch):
-    from signaldesk import llm
+    monkeypatch.setattr(llm, "BACKEND", "claude")  # the cap applies to paid calls only
     monkeypatch.setattr(llm, "MAX_CALLS_PER_DAY", 0)
     with pytest.raises(BudgetExceeded):
         ask(conn, "A question never asked before about Acme widgets?", cfg=CFG,
@@ -305,3 +326,11 @@ def test_reparse_removes_older_parser_versions(conn):
         assert parsers == {pipeline.PARSER_VERSION}
     finally:
         conn.execute("DELETE FROM documents WHERE id = %s", (doc,))
+
+
+def test_local_model_is_not_capped(conn, monkeypatch):
+    monkeypatch.setattr(llm, "BACKEND", "ollama")
+    monkeypatch.setattr(llm, "MAX_CALLS_PER_DAY", 0)
+    a = ask(conn, "Yet another new question about Acme widgets?", cfg=CFG,
+            transport=fake({"answerable": False, "answer": "", "claims": []}))
+    assert a.status == "refused_by_model"

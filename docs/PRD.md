@@ -100,7 +100,7 @@ without it.
  EDGAR ───► │ Go ingester  │ ───────────────────────► │ Postgres 17 + pgvector        │
             │ rate-limited │                          │ documents, sections, chunks,  │
             └──────────────┘                          │ embeddings, signals, prices,  │
-                                                      │ questions, runs, rules, jobs  │
+                                                      │ runs, rules                   │
             ┌──────────────┐  parse/chunk/embed       └──────┬─────────────┬──────────┘
             │ Python       │ ◄───────────────────────────────┘             │
             │ workers      │ ───── signals (verified) ─────────────────────┤
@@ -136,10 +136,8 @@ Filing text is untrusted data. Prompts mark it as quoted material, and no agent 
 | `documents` | accession_no, form, doc_kind, source_url, accepted_at, published_at, filed_date, content_hash, raw_path | One row per fetched document |
 | `sections` | document_id, section, ordinal, text | Parsed sections; gold quotes live here |
 | `chunks` | document_id, chunker, section, ordinal, text, token_count, char_start, char_end, published_at, tsv | Passages with offsets back into the section |
-| `embeddings` | chunk_id, model, dim, vector | One row per chunk per model |
-| `questions` | id, split, text, ticker, as_of, gold (quote spans), labelled_by | Eval set |
-| `runs` | pipeline_config, git_sha, data_snapshot, metrics_json | Every experiment |
-| `jobs` | kind, payload, status, attempts | Postgres-backed queue |
+| `embeddings` | chunk_id, model, vector | One row per chunk per model |
+| `runs` | pipeline_config, git_sha, metrics_json | Every experiment |
 | `signals`, `prices`, `rules`, `backtests` | as in v1.0 | Added in Phases 3–4 |
 
 ---
@@ -239,6 +237,7 @@ What real data changed, in order. Each entry names the evidence.
 | 9 Nov 2026 | Reranked retrieval takes ~5.8 s per question on an M4, leaving ~4 s for generation inside the 10 s budget | Notebook 03 timings | Answer latency must be measured once the API key is set; reranking 20 instead of 50 is the fallback |
 | 9 Nov 2026 | Cited answers not yet scored: no Anthropic credential on this machine | — | Citation precision, refusal rate and faithfulness remain open for the Phase 2 gate |
 | 13 Nov 2026 | Repo audit: an unknown ticker searched every company; the answer text could restate a dropped claim; a model refusal crashed batch runs; a parser bump would leave old passages searchable; dev/held-out questions had no `as_of`, so a new download would change "latest" results | Code audit | All fixed with a test each. Every question without `as_of` is pinned to its labelling date (2026-11-09; newest filing in the DB is 2026-11-04, so held-out results are unchanged by construction and were not re-scored) |
+| 13 Nov 2026 | **Cited answers on held-out with local qwen2.5:7b (Ollama): citation precision 0.87 (46/53 quotes), answered 0.84 (38/45), refused 1.00 (10/10 can't-answer); median latency 76 s** | Notebook 03 | Refusal behaviour meets the gate; latency misses the 10 s budget by ~8x (Low Power Mode throttles the GPU to ~7 tokens/s). Faithfulness/correctness need human grading |
 
 ## Open questions
 
